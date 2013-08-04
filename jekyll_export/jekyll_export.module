@@ -1,0 +1,187 @@
+<?php
+/**
+ * @file
+ * A simple Export module for Jekyll
+ *
+ * @author Lukas White <hello@lukaswhite.com>
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function jekyll_export_menu()
+{
+	$items = array();
+
+	// administrative items
+  $items['admin/config/system/jekyll-export'] = array(
+    'title' => 'Jekyll Export',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('jekyll_export_form'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM
+  );
+
+	return $items;
+}
+
+/**
+ * Form definition for the jekyll_export form.
+ *
+ * Collects parameters for the export.
+ */
+function jekyll_export_form($form, &$form_state) {
+
+  $nodes = node_type_get_names();
+
+  $form['types'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Types'),
+    '#default_value' => array(),
+    '#options' => $nodes,
+    '#description' => t('Select which content types to export.'),
+  );
+
+  $form['layout'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Layout name'),
+    '#required' => TRUE,
+    '#default_value' => 'post',
+  );
+
+  $form['unpublished'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Include unpublished nodes?'),
+    '#default_value' => FALSE,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Run Export'),
+  );
+
+  return $form;
+
+}
+
+/**
+ * Validate function for the jekyll_export form.
+ */
+function jekyll_export_form_validate($form, &$form_state) {
+  
+  $types = array_filter($form_state['values']['types']);
+  if (!$types) {
+    form_set_error('types', t('You must select at least one content type.'));
+  }
+
+}
+
+/**
+ * Submit function for the jekyll_export form.
+ */
+function jekyll_export_form_submit($form, &$form_state) {
+
+  $types = array_filter($form_state['values']['types']);
+  $layout = $form_state['values']['layout'];
+  jekyll_export_do_export($types, $layout);
+}
+
+/**
+ * Run the export.
+ *
+ * Converts the content of the specified types to markdown, and creates a zip containing them.
+ */
+function jekyll_export_do_export($types, $layout) 
+{
+  // Create the Jekyll Export temp folder
+  $directory = 'temporary://jekyll-export';
+  $success = file_prepare_directory($directory, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);
+
+  // Now create a directory for this export, using the current timestamp
+  $directory .= '/' . date('YmdHis');
+  $success = file_prepare_directory($directory, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);  
+  
+  // Check the path to the required Markdownfiy library
+  $path = libraries_get_path('markdownify');
+
+  // Load the Markdownify library
+  libraries_load('markdownify');
+
+  $keephtml = true;
+  $md = new Markdownify('Foo', MDFY_BODYWIDTH, $keephtml);
+ 
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'node')
+                          ->entityCondition('bundle', $types)
+                          ->propertyCondition('status', 1);
+                          
+
+  $query->propertyOrderBy('created', 'ASC');
+
+  $entities = $query->execute();
+
+  if (count($entities)) {    
+    $nids = array_keys($entities['node']);    
+    $nodes = node_load_multiple($nids);    
+    
+  } 
+
+  $files = array();
+
+  $archive_filename = 'export_' . REQUEST_TIME . '.zip';
+  $archive_uri = 'temporary://' . $archive_filename;
+  $zip = new ZipArchive;
+  if ($zip->open(drupal_realpath($archive_uri), ZipArchive::CREATE) === TRUE) {
+
+    foreach ($nodes as $node) {
+
+      // Extract the body
+      $fields = field_get_items('node', $node, 'body');
+      $body = $fields[0]['value'];
+
+      // Get the path alias
+      $path_alias = drupal_get_path_alias('node/'.$node->nid);
+      // ..get the part after the last /, if appropriate
+      if (strpos($path_alias, '/')) {
+        $alias = substr($path_alias, (strripos($path_alias, '/')+1));
+      } else {
+        $alias = $path_alias;
+      }
+      // Build the filename
+      $filename = date('Y-m-d', $node->created) . '-' . $alias . '.md';
+
+      // Now get the markdown
+      $markdown = $md->parseString($body);
+
+      // Generate the YAML
+      $yaml = sprintf("---\nlayout: %s\ntitle: \"%s\"\ndate: %s\n---\n\n", $layout, $node->title, date('Y-m-d H:i:s', $node->created));
+
+      // contents of the filw are the YAML followed by the Markdown
+      $contents = $yaml . $markdown;
+
+      // and create the file
+      file_unmanaged_save_data($contents, $directory . '/' . $filename, $replace = FILE_EXISTS_RENAME);
+
+      // ...and add it to the zip file
+      $zip->addFile(drupal_realpath($directory . '/' . $filename), $filename);
+    }
+
+    $zip->close();
+
+    // Most of this is only necessary because of IE
+    header("Cache-Control: public");
+    header("Content-Type: application/octet-stream");
+    header("Cache-Control: no-store, no-cache, must-revalidate");
+    header("Cache-Control: post-check=0, pre-check=0");
+    header("Content-Disposition: attachment; filename=\"$archive_filename\";" );
+    header("Content-Transfer-Encoding: binary");
+
+    $fp = fopen(drupal_realpath($archive_uri), 'rb');
+    fpassthru($fp);
+    drupal_exit();
+
+  }
+
+  
+  drupal_set_message('Content Exported');
+}

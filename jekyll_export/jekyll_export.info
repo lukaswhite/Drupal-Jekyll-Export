@@ -1,0 +1,6 @@
+name = Jekyll Export
+description = A simple exporter to help migrate from Drupal to Jekyll, using Markdown
+package = Other
+version = VERSION
+core = 7.x
+dependencies = markdownify
