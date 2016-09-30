@@ -3,4 +3,4 @@ description = A simple exporter to help migrate from Drupal to Jekyll, using Mar
 package = Other
 version = VERSION
 core = 7.x
-dependencies = markdownify
+dependencies[] = markdownify
