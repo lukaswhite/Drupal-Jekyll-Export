@@ -4,3 +4,4 @@ package = Other
 version = VERSION
 core = 7.x
 dependencies = markdownify
+configure = admin/config/system/jekyll-export
