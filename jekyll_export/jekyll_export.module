@@ -150,8 +150,15 @@ function jekyll_export_do_export($types, $layout)
       // Build the filename
       $filename = date('Y-m-d', $node->created) . '-' . $alias . '.md';
 
-      // Now get the markdown
-      $markdown = $md->parseString($body);
+      // Is this already in Markdown?
+      if (array_key_exists('filter_markdown', filter_list_format($node->format))) {
+        // If so, get the markdown
+        $markdown = $md->parseString($body);
+      } else {
+        // Otherwise use the Markdown ad-verbatim
+        $markdown = $body;
+      }
+      
 
       // Generate the YAML
       $yaml = sprintf("---\nlayout: %s\ntitle: \"%s\"\ndate: %s\n---\n\n", $layout, $node->title, date('Y-m-d H:i:s', $node->created));
